@@ -1,0 +1,16 @@
+[package]
+name = "jutsu-downloader-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3.27"
+futures-util = "0.3.28"
+indicatif = { version = "0.17.3", features = ["tokio"] }
+kuchiki = "0.8.1"
+regex = "1.7.1"
+reqwest = { version = "*", features = ["json", "stream", "blocking"] }
+tokio = { version = "1.26.0", features = ["full"] }
+tokio-util = "*"
