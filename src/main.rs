@@ -1,11 +1,12 @@
 use futures::StreamExt;
-use kuchiki::{traits::TendrilSink};
-use tokio::io::AsyncWriteExt;
+use kuchiki::traits::TendrilSink;
+use std::io::{stdin, BufRead, Read, Write};
+use std::ops::Index;
 use std::{cmp::min, io::stdout};
-use std::io::{Write, stdin, Read, BufRead};
+use tokio::io::AsyncWriteExt;
 
-use reqwest::Client;
 use indicatif::{ProgressBar, ProgressStyle};
+use reqwest::Client;
 
 fn pause() {
     let mut stdout = stdout();
@@ -24,7 +25,7 @@ pub async fn download_file(client: &Client, url: &str, path: &str) -> Result<(),
     let total_size = res
         .content_length()
         .ok_or(format!("Failed to get content length from '{}'", &url))?;
-    
+
     // Indicatif setup
     let pb = ProgressBar::new(total_size);
     pb.set_style(ProgressStyle::default_bar()
@@ -34,13 +35,16 @@ pub async fn download_file(client: &Client, url: &str, path: &str) -> Result<(),
     pb.set_message(format!("Downloading {}", url));
 
     // download chunks
-    let mut file = tokio::fs::File::create(path).await.or(Err(format!("Failed to create file '{}'", path)))?;
+    let mut file = tokio::fs::File::create(path)
+        .await
+        .or(Err(format!("Failed to create file '{}'", path)))?;
     let mut downloaded: u64 = 0;
     let mut stream = res.bytes_stream();
 
     while let Some(item) = stream.next().await {
         let chunk = item.or(Err(format!("Error while downloading file")))?;
-        file.write_all(&chunk).await
+        file.write_all(&chunk)
+            .await
             .or(Err(format!("Error while writing to file")))?;
         let new = min(downloaded + (chunk.len() as u64), total_size);
         downloaded = new;
@@ -49,6 +53,11 @@ pub async fn download_file(client: &Client, url: &str, path: &str) -> Result<(),
 
     pb.finish_with_message(format!("Downloaded {} to {}", url, path));
     return Ok(());
+}
+
+struct Video {
+    url: String,
+    resolution: String,
 }
 
 #[tokio::main]
@@ -67,14 +76,33 @@ async fn main() {
     let jutsu_connection = webclient.get(&url).send().await.unwrap();
 
     println!("Downloading webpage...");
-    let content =  jutsu_connection.text().await.unwrap();
+    let content = jutsu_connection.text().await.unwrap();
 
-    std::fs::write("jutsu.html", &content).unwrap();
     let html = kuchiki::parse_html().one(content.to_owned());
+
+    let sources: Vec<Video> = html
+        .select("#my-player > source")
+        .unwrap()
+        .map(|e| Video {
+            url: e.attributes.borrow().get("src").unwrap().to_owned(),
+            resolution: e.attributes.borrow().get("res").unwrap().to_owned(),
+        })
+        .collect();
     
-    let source =  html.select("#my-player > source:nth-child(1)")
-        .unwrap().nth(0).unwrap().attributes.borrow().get("src").unwrap().to_owned();
+    println!("Select resolution:");
+
+    for (i, x) in sources.iter().enumerate() {
+        println!("{}: {}", i + 1, x.resolution);
+    }
+
+    let mut selection = String::new();
+    stdin().lock().read_line(&mut selection).unwrap();
+    let selection: usize = selection.trim().parse().unwrap();
+
+    let source = &sources[selection - 1];
 
     println!("Downloading video...");
-    download_file(&webclient, &source, "output.mp4").await.unwrap();
-}  
+    download_file(&webclient, &source.url, "output.mp4")
+        .await
+        .unwrap();
+}
